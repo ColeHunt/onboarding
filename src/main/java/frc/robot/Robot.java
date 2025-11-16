@@ -25,6 +25,8 @@ import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotMotor;
 import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotWheelSize;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StructPublisher;
 
 /**
  * The methods in this class are called automatically corresponding to each
@@ -70,7 +72,7 @@ public class Robot extends TimedRobot {
   double right_applied_percent_ = 0.0;
 
   // NT objects
-  Field2d field_ = new Field2d();
+  StructPublisher<Pose2d> chassis_pose_publisher_;
 
   /**
    * This function is run when the robot is first started up and should be used
@@ -120,6 +122,11 @@ public class Robot extends TimedRobot {
       KitbotGearing.k10p71,
       KitbotWheelSize.kSixInch,
       null);
+
+    // Initialize NetworkTables pose publisher
+    chassis_pose_publisher_ = NetworkTableInstance.getDefault()
+        .getStructTopic("Chassis Pose", Pose2d.struct)
+        .publish();
   }
 
   /**
@@ -137,7 +144,6 @@ public class Robot extends TimedRobot {
     // Calculate odometry
     updateInputs();
     chassis_pose_ = pose_estimator_.update(imu_yaw_, left_position_, right_position_);
-    field_.setRobotPose(chassis_pose_);
     updateOutputs();
 
     // Display odometry information to dashboard
@@ -145,7 +151,9 @@ public class Robot extends TimedRobot {
     SmartDashboard.putNumber("Chassis Velocity", getChassisSpeeds().vxMetersPerSecond);
     SmartDashboard.putNumber("Chassis Yaw", chassis_pose_.getRotation().getDegrees());
     SmartDashboard.putNumber("Chassis Yaw Rate", getChassisSpeeds().omegaRadiansPerSecond);
-    SmartDashboard.putData("Field", field_);
+
+    // Publish chassis pose to NetworkTables
+    chassis_pose_publisher_.set(chassis_pose_);
   }
 
   /**
