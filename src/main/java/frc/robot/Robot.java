@@ -25,13 +25,19 @@ public class Robot extends TimedRobot {
   TalonSRX bl_drive_motor_;
   TalonSRX br_drive_motor_;
 
-  XboxController controller = new XboxController(0);
+  XboxController driver_controller_ = new XboxController(0);
 
   private static final double WHEEL_RADIUS = Units.inchesToMeters(3.0); // in inches 
   private static final double WHEEL_CIRCUMFERENCE = 2 * Math.PI * WHEEL_RADIUS;
-  double chassis_trans_velocity_;
-  double chassis_rot_velocity_;
-  double chassis_trans_pos_;
+  private static final double TRACK_WIDTH = Units.inchesToMeters(24.0); // in inches
+  double chassis_position_ = 0.0;
+  double chassis_velocity_ = 0.0;
+  double chassis_yaw_ = 0.0;
+  double chassis_yaw_rate_ = 0.0;
+  double left_position_ = 0.0;
+  double right_position_ = 0.0;
+  double left_velocity_ = 0.0;
+  double right_velocity_ = 0.0;
 
   /**
    * This function is run when the robot is first started up and should be used for any
@@ -70,18 +76,20 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
-    double left_velocity = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
-    double right_velocity = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
-    double left_postion = fl_drive_motor_.getSelectedSensorPosition() / 4096.0  * WHEEL_CIRCUMFERENCE; // m
-    double right_position = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
+    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
+    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0  * WHEEL_CIRCUMFERENCE; // m
+    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
 
-    chassis_trans_pos_ = (left_postion + right_position) / 2.0;
-    chassis_trans_velocity_ = (left_velocity + right_velocity) / 2.0;
-    chassis_rot_velocity_ = (right_velocity - left_velocity) / 2.0; // rads/s
+    chassis_position_ = calcChassisPosition();
+    chassis_velocity_ = calcChassisVelocity();
+    chassis_yaw_rate_ = calcChassisYawRate();
+    chassis_yaw_ = getChassisYaw();
 
-    SmartDashboard.putNumber("Chassis Velocity", chassis_trans_velocity_);
-    SmartDashboard.putNumber("Chassis Distance", chassis_trans_pos_);
-    SmartDashboard.putNumber("Chassis Rot Velocity", chassis_rot_velocity_);
+    SmartDashboard.putNumber("Chassis Distance", chassis_position_);
+    SmartDashboard.putNumber("Chassis Velocity", chassis_velocity_);
+    SmartDashboard.putNumber("Chassis Yaw", chassis_yaw_);
+    SmartDashboard.putNumber("Chassis Yaw Rate", chassis_yaw_rate_);
   }
 
   /**
@@ -103,20 +111,16 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during autonomous. */
   @Override
   public void autonomousPeriodic() {
-    if(chassis_trans_pos_ < 9.9){
+    if(chassis_position_ < 9.9){
       // Drive Forward
-      fl_drive_motor_.set(ControlMode.PercentOutput, 0.25);
-      fr_drive_motor_.set(ControlMode.PercentOutput, 0.25);
-    } else if (chassis_trans_pos_ > 10.1){
+      setDrivePower(0.25, 0.25);
+    } else if (chassis_position_ > 10.1){
       // Drive Backward
-      fl_drive_motor_.set(ControlMode.PercentOutput, -0.25);
-      fr_drive_motor_.set(ControlMode.PercentOutput, -0.25);
+      setDrivePower(-0.25, -0.25);
     } else {
       // Stop
-      fl_drive_motor_.set(ControlMode.PercentOutput, 0.0);
-      fr_drive_motor_.set(ControlMode.PercentOutput, 0.0);
+      setDrivePower(0.0, 0.0);
     }
-
   }
 
   /** This function is called once when teleop is enabled. */
@@ -126,8 +130,7 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    fl_drive_motor_.set(ControlMode.PercentOutput, -controller.getLeftY());
-    fr_drive_motor_.set(ControlMode.PercentOutput, -controller.getRightY());
+    setDrivePower(driver_controller_.getLeftY(), driver_controller_.getRightY());
   }
 
   /** This function is called once when the robot is disabled. */
@@ -153,4 +156,66 @@ public class Robot extends TimedRobot {
   /** This function is called periodically whilst in simulation. */
   @Override
   public void simulationPeriodic() {}
+
+  /**
+   * Set left drive power
+   * @param power Power from -1.0 to 1.0
+   */
+  private void setLeftDrivePower(double power) {
+    fl_drive_motor_.set(ControlMode.PercentOutput, power);
+  }
+
+  /**
+   * Set right drive power
+   * @param power Power from -1.0 to 1.0
+   */
+  private void setRightDrivePower(double power) {
+    fr_drive_motor_.set(ControlMode.PercentOutput, power);
+  }
+
+  /**
+   * Set drive power
+   * @param left_power Left power from -1.0 to 1.0
+   * @param right_power Right power from -1.0 to 1.0
+   */
+  private void setDrivePower(double left_power, double right_power) {
+    setLeftDrivePower(left_power);
+    setRightDrivePower(right_power);
+  }
+  
+  /**
+   * Get chassis position
+   * @return Chassis position
+   */
+  private double calcChassisPosition() {
+    return (left_position_ + right_position_) / 2.0;
+  }
+
+  /**
+   * Get chassis translation velocity
+   * @return Chassis translation velocity
+   */
+  private double calcChassisVelocity() {
+    return (left_velocity_ + right_velocity_) / 2.0;
+    
+  }
+
+  /**
+   * Get chassis yaw
+   * @return Chassis yaw betwween -π and π
+   */
+  private double getChassisYaw(){
+    double raw = chassis_yaw_ + chassis_yaw_rate_ * 0.02;
+    return ((raw + Math.PI) % (2 * Math.PI)) - Math.PI; // Wrap raw between -π and π
+  }
+
+  /**
+   * Get chassis rotational velocity
+   * @return Chassis rotational velocity
+   */
+  private double calcChassisYawRate() {
+    // right_velocity - left_velocity / radius of rotation (estimated)
+    return (right_velocity_ - left_velocity_) / (TRACK_WIDTH/2.0);
+  }
+
 }
