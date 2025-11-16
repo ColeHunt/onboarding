@@ -7,9 +7,16 @@ package frc.robot;
 import com.ctre.phoenix.motorcontrol.ControlMode;
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
 
+import edu.wpi.first.math.estimator.DifferentialDrivePoseEstimator;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
+import edu.wpi.first.math.kinematics.DifferentialDriveKinematics;
+import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
 /**
@@ -25,19 +32,18 @@ public class Robot extends TimedRobot {
   TalonSRX bl_drive_motor_;
   TalonSRX br_drive_motor_;
 
-  XboxController driver_controller_ = new XboxController(0);
+  XboxController driver_controller_;
 
   private static final double WHEEL_RADIUS = Units.inchesToMeters(3.0); // in inches 
   private static final double WHEEL_CIRCUMFERENCE = 2 * Math.PI * WHEEL_RADIUS;
   private static final double TRACK_WIDTH = Units.inchesToMeters(24.0); // in inches
-  double chassis_position_ = 0.0;
-  double chassis_velocity_ = 0.0;
-  double chassis_yaw_ = 0.0;
-  double chassis_yaw_rate_ = 0.0;
-  double left_position_ = 0.0;
-  double right_position_ = 0.0;
-  double left_velocity_ = 0.0;
-  double right_velocity_ = 0.0;
+  DifferentialDrive drive_train_;
+  DifferentialDriveKinematics drive_train_kinematics_;
+  Pose2d chassis_pose_ = new Pose2d();
+  ChassisSpeeds chassis_speeds_ = new ChassisSpeeds();
+  Rotation2d chassis_yaw_ = new Rotation2d(0);
+  DifferentialDrivePoseEstimator pose_estimator_;
+
 
   /**
    * This function is run when the robot is first started up and should be used for any
@@ -65,6 +71,19 @@ public class Robot extends TimedRobot {
     fr_drive_motor_.setSensorPhase(true);
     fl_drive_motor_.setSelectedSensorPosition(0);
     fr_drive_motor_.setSelectedSensorPosition(0);
+
+    // Initialize drive train object
+    drive_train_ = new DifferentialDrive(this::setLeftDrivePower, this::setRightDrivePower);
+    drive_train_kinematics_ = new DifferentialDriveKinematics(TRACK_WIDTH);
+    pose_estimator_ = new DifferentialDrivePoseEstimator(
+      drive_train_kinematics_, 
+      chassis_yaw_, 
+      0.0, 
+      0.0, 
+      chassis_pose_);
+
+    // Initialize driver controller
+    driver_controller_ = new XboxController(0);
   }
 
   /**
@@ -76,20 +95,22 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
-    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
-    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
-    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0  * WHEEL_CIRCUMFERENCE; // m
-    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    double left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
+    double right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0  * WHEEL_CIRCUMFERENCE * 10; // m/s
+    double left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0  * WHEEL_CIRCUMFERENCE; // m
+    double right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    DifferentialDriveWheelSpeeds speeds = new DifferentialDriveWheelSpeeds(left_velocity_, right_velocity_);
 
-    chassis_position_ = calcChassisPosition();
-    chassis_velocity_ = calcChassisVelocity();
-    chassis_yaw_rate_ = calcChassisYawRate();
-    chassis_yaw_ = getChassisYaw();
-
-    SmartDashboard.putNumber("Chassis Distance", chassis_position_);
-    SmartDashboard.putNumber("Chassis Velocity", chassis_velocity_);
-    SmartDashboard.putNumber("Chassis Yaw", chassis_yaw_);
-    SmartDashboard.putNumber("Chassis Yaw Rate", chassis_yaw_rate_);
+    // Calculate odometry
+    chassis_speeds_ = drive_train_kinematics_.toChassisSpeeds(speeds);
+    chassis_yaw_ = calcChassisYaw();
+    pose_estimator_.update(chassis_yaw_, left_position_, right_position_);
+    
+    // Display odometry information to dashboard
+    SmartDashboard.putNumber("Chassis Distance", chassis_pose_.getX());
+    SmartDashboard.putNumber("Chassis Velocity", chassis_speeds_.vxMetersPerSecond);
+    SmartDashboard.putNumber("Chassis Yaw", chassis_yaw_.getDegrees());
+    SmartDashboard.putNumber("Chassis Yaw Rate", chassis_speeds_.omegaRadiansPerSecond);
   }
 
   /**
@@ -111,15 +132,15 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during autonomous. */
   @Override
   public void autonomousPeriodic() {
-    if(chassis_position_ < 9.9){
+    if(chassis_pose_.getX() < 9.9){
       // Drive Forward
-      setDrivePower(0.25, 0.25);
-    } else if (chassis_position_ > 10.1){
+      drive_train_.arcadeDrive(0.25, 0);
+    } else if (chassis_pose_.getX() > 10.1){
       // Drive Backward
-      setDrivePower(-0.25, -0.25);
+      drive_train_.arcadeDrive(-0.25, 0);
     } else {
       // Stop
-      setDrivePower(0.0, 0.0);
+      drive_train_.stopMotor();
     }
   }
 
@@ -130,7 +151,7 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    setDrivePower(driver_controller_.getLeftY(), driver_controller_.getRightY());
+    drive_train_.arcadeDrive(-driver_controller_.getLeftY(), driver_controller_.getLeftX());
   }
 
   /** This function is called once when the robot is disabled. */
@@ -174,48 +195,11 @@ public class Robot extends TimedRobot {
   }
 
   /**
-   * Set drive power
-   * @param left_power Left power from -1.0 to 1.0
-   * @param right_power Right power from -1.0 to 1.0
-   */
-  private void setDrivePower(double left_power, double right_power) {
-    setLeftDrivePower(left_power);
-    setRightDrivePower(right_power);
-  }
-  
-  /**
-   * Get chassis position
-   * @return Chassis position
-   */
-  private double calcChassisPosition() {
-    return (left_position_ + right_position_) / 2.0;
-  }
-
-  /**
-   * Get chassis translation velocity
-   * @return Chassis translation velocity
-   */
-  private double calcChassisVelocity() {
-    return (left_velocity_ + right_velocity_) / 2.0;
-    
-  }
-
-  /**
    * Get chassis yaw
-   * @return Chassis yaw betwween -π and π
+   * @return Chassis yaw between as Rotation2d
    */
-  private double getChassisYaw(){
-    double raw = chassis_yaw_ + chassis_yaw_rate_ * 0.02;
-    return ((raw + Math.PI) % (2 * Math.PI)) - Math.PI; // Wrap raw between -π and π
-  }
-
-  /**
-   * Get chassis rotational velocity
-   * @return Chassis rotational velocity
-   */
-  private double calcChassisYawRate() {
-    // right_velocity - left_velocity / radius of rotation (estimated)
-    return (right_velocity_ - left_velocity_) / (TRACK_WIDTH/2.0);
+  private Rotation2d calcChassisYaw(){
+    return chassis_yaw_.rotateBy(new Rotation2d(chassis_speeds_.toTwist2d(kDefaultPeriod).dtheta));
   }
 
 }
