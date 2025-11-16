@@ -6,6 +6,8 @@ package frc.robot;
 
 import com.ctre.phoenix.motorcontrol.ControlMode;
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
+import com.studica.frc.AHRS;
+import com.studica.frc.AHRS.NavXComType;
 
 import edu.wpi.first.math.estimator.DifferentialDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
@@ -38,6 +40,9 @@ public class Robot extends TimedRobot {
   TalonSRX bl_drive_motor_;
   TalonSRX br_drive_motor_;
 
+  // IMU object
+  AHRS imu_;
+
   // Driver controller object
   XboxController driver_controller_;
 
@@ -47,10 +52,15 @@ public class Robot extends TimedRobot {
   private static final double TRACK_WIDTH = Units.inchesToMeters(24.0); // in inches
   DifferentialDrive drive_train_;
   DifferentialDriveKinematics drive_train_kinematics_;
-  Pose2d chassis_pose_ = new Pose2d();
-  Rotation2d chassis_yaw_ = new Rotation2d(0);
-  ChassisSpeeds chassis_speeds_ = new ChassisSpeeds();
   DifferentialDrivePoseEstimator pose_estimator_;
+  Pose2d chassis_pose_ = new Pose2d();
+
+  // Inputs from sensors
+  double left_velocity_ = 0.0;
+  double right_velocity_ = 0.0;
+  double left_position_ = 0.0;
+  double right_position_ = 0.0;
+  Rotation2d imu_yaw_ = Rotation2d.kZero;
 
   // NT objects
   Field2d field_ = new Field2d();
@@ -88,13 +98,17 @@ public class Robot extends TimedRobot {
     drive_train_kinematics_ = new DifferentialDriveKinematics(TRACK_WIDTH);
     pose_estimator_ = new DifferentialDrivePoseEstimator(
         drive_train_kinematics_,
-        chassis_yaw_,
+        imu_yaw_,
         0.0,
         0.0,
         chassis_pose_);
 
     // Initialize driver controller
     driver_controller_ = new XboxController(0);
+
+    // Initialize IMU
+    imu_ = new AHRS(NavXComType.kMXP_SPI);
+    imu_.zeroYaw();
 
   }
 
@@ -110,31 +124,17 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
-    // Inputs from encoders
-    double left_velocity_ = 0.0;
-    double right_velocity_ = 0.0;
-    double left_position_ = 0.0;
-    double right_position_ = 0.0;
-
-    // Robot is real
-    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-
     // Calculate odometry
-    DifferentialDriveWheelSpeeds speeds = new DifferentialDriveWheelSpeeds(left_velocity_, right_velocity_);
-    chassis_speeds_ = drive_train_kinematics_.toChassisSpeeds(speeds);
-    chassis_yaw_ = calcChassisYaw();
-    chassis_pose_ = pose_estimator_.update(chassis_yaw_, left_position_, right_position_);
+    updateInputs();
+    chassis_pose_ = pose_estimator_.update(imu_yaw_, left_position_, right_position_);
     field_.setRobotPose(chassis_pose_);
 
 
     // Display odometry information to dashboard
     SmartDashboard.putNumber("Chassis Distance", chassis_pose_.getX());
-    SmartDashboard.putNumber("Chassis Velocity", chassis_speeds_.vxMetersPerSecond);
-    SmartDashboard.putNumber("Chassis Yaw", chassis_yaw_.getDegrees());
-    SmartDashboard.putNumber("Chassis Yaw Rate", chassis_speeds_.omegaRadiansPerSecond);
+    SmartDashboard.putNumber("Chassis Velocity", getChassisSpeeds().vxMetersPerSecond);
+    SmartDashboard.putNumber("Chassis Yaw", chassis_pose_.getRotation().getDegrees());
+    SmartDashboard.putNumber("Chassis Yaw Rate", getChassisSpeeds().omegaRadiansPerSecond);
     SmartDashboard.putData("Field", field_);
   }
 
@@ -184,7 +184,7 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    drive_train_.arcadeDrive(-driver_controller_.getLeftY(), driver_controller_.getLeftX());
+    drive_train_.arcadeDrive(-driver_controller_.getLeftY(), -driver_controller_.getRightX());
   }
 
   /** This function is called once when the robot is disabled. */
@@ -236,12 +236,22 @@ public class Robot extends TimedRobot {
   }
 
   /**
-   * Get chassis yaw
-   * 
-   * @return Chassis yaw between as Rotation2d
+   * Update all sensor inputs for the drivetrain
    */
-  private Rotation2d calcChassisYaw() {
-    return chassis_yaw_.rotateBy(new Rotation2d(chassis_speeds_.toTwist2d(kDefaultPeriod).dtheta));
+  private void updateInputs(){
+    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
+  }
+
+  /**
+   * Returns the calculated ChassisSpeeds for the robot
+   * @return ChassisSpeeds
+   */
+  private ChassisSpeeds getChassisSpeeds(){
+    return drive_train_kinematics_.toChassisSpeeds(new DifferentialDriveWheelSpeeds(left_velocity_, right_velocity_));
   }
 
 }
