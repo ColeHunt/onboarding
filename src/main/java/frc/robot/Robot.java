@@ -66,8 +66,8 @@ public class Robot extends TimedRobot {
   Rotation2d imu_yaw_ = Rotation2d.kZero;
 
   // Outputs to motors
-  double left_applied_voltage_ = 0.0;
-  double right_applied_voltage_ = 0.0;
+  double left_applied_percent_ = 0.0;
+  double right_applied_percent_ = 0.0;
 
   // NT objects
   Field2d field_ = new Field2d();
@@ -141,6 +141,7 @@ public class Robot extends TimedRobot {
     updateInputs();
     chassis_pose_ = pose_estimator_.update(imu_yaw_, left_position_, right_position_);
     field_.setRobotPose(chassis_pose_);
+    updateOutputs();
 
     // Display odometry information to dashboard
     SmartDashboard.putNumber("Chassis Distance", chassis_pose_.getX());
@@ -232,21 +233,19 @@ public class Robot extends TimedRobot {
   /**
    * Set left drive power
    * 
-   * @param power Power from -1.0 to 1.0
+   * @param percent Power from -1.0 to 1.0
    */
-  private void setLeftDrivePower(double power) {
-    fl_drive_motor_.set(ControlMode.PercentOutput, power);
-    left_applied_voltage_ = power * 12.0;
+  private void setLeftDrivePower(double percent) {
+    left_applied_percent_ = percent;
   }
 
   /**
    * Set right drive power
    * 
-   * @param power Power from -1.0 to 1.0
+   * @param percent Power from -1.0 to 1.0
    */
-  private void setRightDrivePower(double power) {
-    fr_drive_motor_.set(ControlMode.PercentOutput, power);
-    right_applied_voltage_ = power * 12.0;
+  private void setRightDrivePower(double percent) {
+    right_applied_percent_ = percent;
   }
 
   /**
@@ -260,7 +259,7 @@ public class Robot extends TimedRobot {
       right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
       imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
     } else {
-      drivetrain_sim_.setInputs(left_applied_voltage_, right_applied_voltage_);
+      drivetrain_sim_.setInputs(left_applied_percent_ * 12.0, right_applied_percent_* 12.0);
       drivetrain_sim_.update(kDefaultPeriod);
       left_velocity_ = drivetrain_sim_.getLeftVelocityMetersPerSecond();
       right_velocity_ = drivetrain_sim_.getRightVelocityMetersPerSecond();
@@ -268,6 +267,14 @@ public class Robot extends TimedRobot {
       right_position_ = drivetrain_sim_.getRightPositionMeters();
       imu_yaw_ = imu_yaw_.rotateBy(new Rotation2d(getChassisSpeeds().toTwist2d(kDefaultPeriod).dtheta));
     }
+  }
+
+  /**
+   * Update all motor outputs for the drivetrain
+   */
+  private void updateOutputs(){
+    fl_drive_motor_.set(ControlMode.PercentOutput, left_applied_percent_);
+    fr_drive_motor_.set(ControlMode.PercentOutput, right_applied_percent_);
   }
 
   /**
