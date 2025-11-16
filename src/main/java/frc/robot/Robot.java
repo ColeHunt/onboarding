@@ -14,13 +14,15 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.DifferentialDriveKinematics;
-import edu.wpi.first.math.kinematics.DifferentialDriveWheelPositions;
 import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
-import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotGearing;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotMotor;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotWheelSize;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
@@ -50,10 +52,11 @@ public class Robot extends TimedRobot {
   private static final double WHEEL_RADIUS = Units.inchesToMeters(3.0); // in inches
   private static final double WHEEL_CIRCUMFERENCE = 2 * Math.PI * WHEEL_RADIUS;
   private static final double TRACK_WIDTH = Units.inchesToMeters(24.0); // in inches
-  DifferentialDrive drive_train_;
-  DifferentialDriveKinematics drive_train_kinematics_;
+  DifferentialDrive drivetrain_;
+  DifferentialDriveKinematics drivetrain_kinematics_;
   DifferentialDrivePoseEstimator pose_estimator_;
   Pose2d chassis_pose_ = new Pose2d();
+  DifferentialDrivetrainSim drivetrain_sim_;
 
   // Inputs from sensors
   double left_velocity_ = 0.0;
@@ -61,6 +64,10 @@ public class Robot extends TimedRobot {
   double left_position_ = 0.0;
   double right_position_ = 0.0;
   Rotation2d imu_yaw_ = Rotation2d.kZero;
+
+  // Outputs to motors
+  double left_applied_voltage_ = 0.0;
+  double right_applied_voltage_ = 0.0;
 
   // NT objects
   Field2d field_ = new Field2d();
@@ -94,10 +101,10 @@ public class Robot extends TimedRobot {
     fr_drive_motor_.setSelectedSensorPosition(0);
 
     // Initialize drive train object
-    drive_train_ = new DifferentialDrive(this::setLeftDrivePower, this::setRightDrivePower);
-    drive_train_kinematics_ = new DifferentialDriveKinematics(TRACK_WIDTH);
+    drivetrain_ = new DifferentialDrive(this::setLeftDrivePower, this::setRightDrivePower);
+    drivetrain_kinematics_ = new DifferentialDriveKinematics(TRACK_WIDTH);
     pose_estimator_ = new DifferentialDrivePoseEstimator(
-        drive_train_kinematics_,
+        drivetrain_kinematics_,
         imu_yaw_,
         0.0,
         0.0,
@@ -110,6 +117,12 @@ public class Robot extends TimedRobot {
     imu_ = new AHRS(NavXComType.kMXP_SPI);
     imu_.zeroYaw();
 
+    // Setup sim object
+    drivetrain_sim_ = DifferentialDrivetrainSim.createKitbotSim(
+      KitbotMotor.kDualCIMPerSide,
+      KitbotGearing.k10p71,
+      KitbotWheelSize.kSixInch,
+      null);
   }
 
   /**
@@ -128,7 +141,6 @@ public class Robot extends TimedRobot {
     updateInputs();
     chassis_pose_ = pose_estimator_.update(imu_yaw_, left_position_, right_position_);
     field_.setRobotPose(chassis_pose_);
-
 
     // Display odometry information to dashboard
     SmartDashboard.putNumber("Chassis Distance", chassis_pose_.getX());
@@ -166,13 +178,13 @@ public class Robot extends TimedRobot {
   public void autonomousPeriodic() {
     if (chassis_pose_.getX() < 9.9) {
       // Drive Forward
-      drive_train_.arcadeDrive(0.25, 0);
+      drivetrain_.arcadeDrive(0.25, 0);
     } else if (chassis_pose_.getX() > 10.1) {
       // Drive Backward
-      drive_train_.arcadeDrive(-0.25, 0);
+      drivetrain_.arcadeDrive(-0.25, 0);
     } else {
       // Stop
-      drive_train_.stopMotor();
+      drivetrain_.stopMotor();
     }
   }
 
@@ -184,7 +196,7 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    drive_train_.arcadeDrive(-driver_controller_.getLeftY(), -driver_controller_.getRightX());
+    drivetrain_.arcadeDrive(-driver_controller_.getLeftY(), -driver_controller_.getRightX());
   }
 
   /** This function is called once when the robot is disabled. */
@@ -224,6 +236,7 @@ public class Robot extends TimedRobot {
    */
   private void setLeftDrivePower(double power) {
     fl_drive_motor_.set(ControlMode.PercentOutput, power);
+    left_applied_voltage_ = power * 12.0;
   }
 
   /**
@@ -233,17 +246,28 @@ public class Robot extends TimedRobot {
    */
   private void setRightDrivePower(double power) {
     fr_drive_motor_.set(ControlMode.PercentOutput, power);
+    right_applied_voltage_ = power * 12.0;
   }
 
   /**
    * Update all sensor inputs for the drivetrain
    */
   private void updateInputs(){
-    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
+    if(isReal()){
+      left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+      right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+      left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+      right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+      imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
+    } else {
+      drivetrain_sim_.setInputs(left_applied_voltage_, right_applied_voltage_);
+      drivetrain_sim_.update(kDefaultPeriod);
+      left_velocity_ = drivetrain_sim_.getLeftVelocityMetersPerSecond();
+      right_velocity_ = drivetrain_sim_.getRightVelocityMetersPerSecond();
+      left_position_ = drivetrain_sim_.getLeftPositionMeters();
+      right_position_ = drivetrain_sim_.getRightPositionMeters();
+      imu_yaw_ = imu_yaw_.rotateBy(new Rotation2d(getChassisSpeeds().toTwist2d(kDefaultPeriod).dtheta));
+    }
   }
 
   /**
@@ -251,7 +275,7 @@ public class Robot extends TimedRobot {
    * @return ChassisSpeeds
    */
   private ChassisSpeeds getChassisSpeeds(){
-    return drive_train_kinematics_.toChassisSpeeds(new DifferentialDriveWheelSpeeds(left_velocity_, right_velocity_));
+    return drivetrain_kinematics_.toChassisSpeeds(new DifferentialDriveWheelSpeeds(left_velocity_, right_velocity_));
   }
 
 }
