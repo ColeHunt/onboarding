@@ -19,10 +19,6 @@ import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotGearing;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotMotor;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotWheelSize;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
@@ -55,11 +51,6 @@ public class Robot extends TimedRobot {
   Rotation2d chassis_yaw_ = new Rotation2d(0);
   ChassisSpeeds chassis_speeds_ = new ChassisSpeeds();
   DifferentialDrivePoseEstimator pose_estimator_;
-  double left_motor_applied_voltage_ = 0;
-  double right_motor_applied_percent_voltage_ = 0;
-
-  // Simulation objects and constants
-  DifferentialDrivetrainSim drive_train_sim_;
 
   // NT objects
   Field2d field_ = new Field2d();
@@ -105,12 +96,6 @@ public class Robot extends TimedRobot {
     // Initialize driver controller
     driver_controller_ = new XboxController(0);
 
-    // Setup simulation drivetrain
-    drive_train_sim_ = DifferentialDrivetrainSim.createKitbotSim(
-        KitbotMotor.kDualCIMPerSide,
-        KitbotGearing.k10p71,
-        KitbotWheelSize.kSixInch,
-        null);
   }
 
   /**
@@ -131,21 +116,11 @@ public class Robot extends TimedRobot {
     double left_position_ = 0.0;
     double right_position_ = 0.0;
 
-    if (Robot.isReal()) {
-      // Robot is real
-      left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-      right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-      left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-      right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    } else {
-      // Robot is simulation
-      drive_train_sim_.update(0.02);
-
-      left_velocity_ = drive_train_sim_.getLeftVelocityMetersPerSecond();
-      right_velocity_ = drive_train_sim_.getRightVelocityMetersPerSecond();
-      left_position_ = drive_train_sim_.getLeftPositionMeters();
-      right_position_ = drive_train_sim_.getRightPositionMeters();
-    }
+    // Robot is real
+    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
 
     // Calculate odometry
     DifferentialDriveWheelSpeeds speeds = new DifferentialDriveWheelSpeeds(left_velocity_, right_velocity_);
@@ -240,7 +215,6 @@ public class Robot extends TimedRobot {
   /** This function is called periodically whilst in simulation. */
   @Override
   public void simulationPeriodic() {
-    drive_train_sim_.setInputs(left_motor_applied_voltage_, right_motor_applied_percent_voltage_);
   }
 
   /**
@@ -249,10 +223,7 @@ public class Robot extends TimedRobot {
    * @param power Power from -1.0 to 1.0
    */
   private void setLeftDrivePower(double power) {
-    if (Robot.isReal()) {
-      fl_drive_motor_.set(ControlMode.PercentOutput, power);
-    }
-    left_motor_applied_voltage_ = power * 12.0;
+    fl_drive_motor_.set(ControlMode.PercentOutput, power);
   }
 
   /**
@@ -261,10 +232,7 @@ public class Robot extends TimedRobot {
    * @param power Power from -1.0 to 1.0
    */
   private void setRightDrivePower(double power) {
-    if (Robot.isReal()) {
-      fr_drive_motor_.set(ControlMode.PercentOutput, power);
-    }
-    right_motor_applied_percent_voltage_ = power * 12.0;
+    fr_drive_motor_.set(ControlMode.PercentOutput, power);
   }
 
   /**
