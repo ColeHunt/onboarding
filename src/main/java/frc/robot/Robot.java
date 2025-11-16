@@ -78,11 +78,13 @@ public class Robot extends TimedRobot {
    * initialization code.
    */
   public Robot() {
-    // Initialize motor controllers
+    // Initialize devices
     fl_drive_motor_ = new TalonSRX(1);
     bl_drive_motor_ = new TalonSRX(2);
     fr_drive_motor_ = new TalonSRX(3);
     br_drive_motor_ = new TalonSRX(4);
+    imu_ = new AHRS(NavXComType.kMXP_SPI);
+    driver_controller_ = new XboxController(0);
 
     // Set followers
     bl_drive_motor_.follow(fl_drive_motor_);
@@ -110,11 +112,6 @@ public class Robot extends TimedRobot {
         0.0,
         chassis_pose_);
 
-    // Initialize driver controller
-    driver_controller_ = new XboxController(0);
-
-    // Initialize IMU
-    imu_ = new AHRS(NavXComType.kMXP_SPI);
     imu_.zeroYaw();
 
     // Setup sim object
