@@ -19,11 +19,6 @@ import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotGearing;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotMotor;
-import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.KitbotWheelSize;
-import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.StructPublisher;
@@ -58,7 +53,6 @@ public class Robot extends TimedRobot {
   DifferentialDriveKinematics drivetrain_kinematics_;
   DifferentialDrivePoseEstimator pose_estimator_;
   Pose2d chassis_pose_ = new Pose2d();
-  DifferentialDrivetrainSim drivetrain_sim_;
 
   // Inputs from sensors
   double left_velocity_ = 0.0;
@@ -115,13 +109,6 @@ public class Robot extends TimedRobot {
         chassis_pose_);
 
     imu_.zeroYaw();
-
-    // Setup sim object
-    drivetrain_sim_ = DifferentialDrivetrainSim.createKitbotSim(
-      KitbotMotor.kDualCIMPerSide,
-      KitbotGearing.k10p71,
-      KitbotWheelSize.kSixInch,
-      null);
 
     // Initialize NetworkTables pose publisher
     chassis_pose_publisher_ = NetworkTableInstance.getDefault()
@@ -257,21 +244,11 @@ public class Robot extends TimedRobot {
    * Update all sensor inputs for the drivetrain
    */
   private void updateInputs(){
-    if(isReal()){
-      left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-      right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-      left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-      right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-      imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
-    } else {
-      drivetrain_sim_.setInputs(left_applied_percent_ * 12.0, right_applied_percent_* 12.0);
-      drivetrain_sim_.update(kDefaultPeriod);
-      left_velocity_ = drivetrain_sim_.getLeftVelocityMetersPerSecond();
-      right_velocity_ = drivetrain_sim_.getRightVelocityMetersPerSecond();
-      left_position_ = drivetrain_sim_.getLeftPositionMeters();
-      right_position_ = drivetrain_sim_.getRightPositionMeters();
-      imu_yaw_ = imu_yaw_.rotateBy(new Rotation2d(getChassisSpeeds().toTwist2d(kDefaultPeriod).dtheta));
-    }
+    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
   }
 
   /**
