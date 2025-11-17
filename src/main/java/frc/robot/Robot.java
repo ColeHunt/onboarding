@@ -6,10 +6,6 @@ package frc.robot;
 
 import com.ctre.phoenix.motorcontrol.ControlMode;
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
-import com.studica.frc.AHRS;
-import com.studica.frc.AHRS.NavXComType;
-
-import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.XboxController;
@@ -31,9 +27,6 @@ public class Robot extends TimedRobot {
   TalonSRX bl_drive_motor_;
   TalonSRX br_drive_motor_;
 
-  // IMU object
-  AHRS imu_;
-
   // Driver controller object
   XboxController driver_controller_;
 
@@ -47,11 +40,13 @@ public class Robot extends TimedRobot {
   double right_velocity_ = 0.0;
   double left_position_ = 0.0;
   double right_position_ = 0.0;
-  Rotation2d imu_yaw_ = Rotation2d.kZero;
 
   // Outputs to motors
   double left_applied_percent_ = 0.0;
   double right_applied_percent_ = 0.0;
+
+  // Odom info
+  double distance = 0.0;
 
   /**
    * This function is run when the robot is first started up and should be used
@@ -64,7 +59,6 @@ public class Robot extends TimedRobot {
     bl_drive_motor_ = new TalonSRX(2);
     fr_drive_motor_ = new TalonSRX(3);
     br_drive_motor_ = new TalonSRX(4);
-    imu_ = new AHRS(NavXComType.kMXP_SPI);
     driver_controller_ = new XboxController(0);
 
     // Set followers
@@ -82,9 +76,6 @@ public class Robot extends TimedRobot {
     fr_drive_motor_.setSensorPhase(true);
     fl_drive_motor_.setSelectedSensorPosition(0);
     fr_drive_motor_.setSelectedSensorPosition(0);
-
-    // Zero the IMU
-    imu_.zeroYaw();
   }
 
   /**
@@ -100,14 +91,23 @@ public class Robot extends TimedRobot {
   @Override
   public void robotPeriodic() {
     // Calculate odometry
-    updateInputs();
-    updateOutputs();
+    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
+    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
+
+    distance = (left_position_ + right_position_) / 2.0;
+    double velocity = (left_velocity_ + right_velocity_) / 2.0;
+    double yaw_rate = (right_velocity_ - left_velocity_) / (TRACK_WIDTH/2.0);
+
+    // Set outputs
+    fl_drive_motor_.set(ControlMode.PercentOutput, left_applied_percent_);
+    fr_drive_motor_.set(ControlMode.PercentOutput, right_applied_percent_);
 
     // Display odometry information to dashboard
-    SmartDashboard.putNumber("Chassis Distance", getChassisDistance());
-    SmartDashboard.putNumber("Chassis Velocity", getChassisVelocity());
-    SmartDashboard.putNumber("Chassis Yaw", Units.radiansToDegrees(getChassisYaw()));
-    SmartDashboard.putNumber("Chassis Yaw Rate", Units.radiansToDegrees(getChassisYawRate()));
+    SmartDashboard.putNumber("Chassis Distance", distance);
+    SmartDashboard.putNumber("Chassis Velocity", velocity);
+    SmartDashboard.putNumber("Chassis Yaw Rate", Units.radiansToDegrees(yaw_rate));
 
   }
 
@@ -137,15 +137,18 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during autonomous. */
   @Override
   public void autonomousPeriodic() {
-    if (getChassisDistance() < 9.9) {
+    if (distance < 9.9) {
       // Drive Forward
-      arcadeDrive(0.25, 0);
-    } else if (getChassisDistance() > 10.1) {
+      left_applied_percent_ = 0.25;
+      right_applied_percent_ = 0.25;
+    } else if (distance > 10.1) {
       // Drive Backward
-      arcadeDrive(-0.25, 0);
+      left_applied_percent_ = -0.25;
+      right_applied_percent_ = -0.25;
     } else {
       // Stop
-      arcadeDrive(0, 0);
+      left_applied_percent_ = 0.0;
+      right_applied_percent_ = 0.0;
     }
   }
 
@@ -157,7 +160,8 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    arcadeDrive(-driver_controller_.getLeftY(), -driver_controller_.getRightX());
+    left_applied_percent_ = driver_controller_.getLeftY() - -driver_controller_.getRightX();
+    right_applied_percent_ = driver_controller_.getLeftY() - -driver_controller_.getRightX();
   }
 
   /** This function is called once when the robot is disabled. */
@@ -188,85 +192,5 @@ public class Robot extends TimedRobot {
   /** This function is called periodically whilst in simulation. */
   @Override
   public void simulationPeriodic() {
-  }
-
-  /**
-   * Set left drive power
-   * 
-   * @param percent Power from -1.0 to 1.0
-   */
-  private void setLeftDrivePower(double percent) {
-    left_applied_percent_ = percent;
-  }
-
-  /**
-   * Set right drive power
-   * 
-   * @param percent Power from -1.0 to 1.0
-   */
-  private void setRightDrivePower(double percent) {
-    right_applied_percent_ = percent;
-  }
-
-  /**
-   * Arcade drive method for differential drive
-   * 
-   * @param forward  Forward command from -1.0 to 1.0
-   * @param rotation Rotation command from -1.0 to 1.0
-   */
-  private void arcadeDrive(double forward, double rotation) {
-    setLeftDrivePower(forward - rotation);
-    setRightDrivePower(forward + rotation);
-  }
-
-  /**
-   * Update all sensor inputs for the drivetrain
-   */
-  private void updateInputs(){
-    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    imu_yaw_ = Rotation2d.fromDegrees(-imu_.getYaw());
-  }
-
-  /**
-   * Update all motor outputs for the drivetrain
-   */
-  private void updateOutputs(){
-    fl_drive_motor_.set(ControlMode.PercentOutput, left_applied_percent_);
-    fr_drive_motor_.set(ControlMode.PercentOutput, right_applied_percent_);
-  }
-
-  /**
-   * Get chassis distance traveled
-   * @return Distance in meters
-   */
-  double getChassisDistance() {
-    return (left_position_ + right_position_) / 2.0;
-  }
-
-  /**
-   * Get chassis velocity
-   * @return Velocity in meters per second
-   */
-  double getChassisVelocity() {
-    return (left_velocity_ + right_velocity_) / 2.0;
-  }
-
-  /**
-   * Get chassis yaw
-   * @return Yaw in radians
-   */
-  double getChassisYaw() {
-    return Units.degreesToRadians(imu_.getYaw());
-  }
-
-  /**
-   * Get chassis yaw rate
-   * @return Yaw rate in radians per second
-   */
-  double getChassisYawRate() {
-    return (right_velocity_ - left_velocity_) / (TRACK_WIDTH/2.0);
   }
 }
