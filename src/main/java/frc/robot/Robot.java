@@ -4,12 +4,7 @@
 
 package frc.robot;
 
-import com.ctre.phoenix.motorcontrol.ControlMode;
-import com.ctre.phoenix.motorcontrol.can.TalonSRX;
-import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj.XboxController;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
 /**
  * The methods in this class are called automatically corresponding to each
@@ -20,33 +15,7 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
  */
 public class Robot extends TimedRobot {
 
-  // Motor controller objects and constants
-  private static final boolean INVERT_LEFT_DRIVE = false;
-  TalonSRX fl_drive_motor_;
-  TalonSRX fr_drive_motor_;
-  TalonSRX bl_drive_motor_;
-  TalonSRX br_drive_motor_;
-
-  // Driver controller object
-  XboxController driver_controller_;
-
-  // Odometry objects and constants
-  private static final double WHEEL_RADIUS = Units.inchesToMeters(3.0); // in inches
-  private static final double WHEEL_CIRCUMFERENCE = 2 * Math.PI * WHEEL_RADIUS;
-  private static final double TRACK_WIDTH = Units.inchesToMeters(24.0); // in inches
-
-  // Inputs from sensors
-  double left_velocity_ = 0.0;
-  double right_velocity_ = 0.0;
-  double left_position_ = 0.0;
-  double right_position_ = 0.0;
-
-  // Outputs to motors
-  double left_applied_percent_ = 0.0;
-  double right_applied_percent_ = 0.0;
-
-  // Odom info
-  double distance = 0.0;
+  Drivetrain drivetrain_;
 
   /**
    * This function is run when the robot is first started up and should be used
@@ -54,28 +23,7 @@ public class Robot extends TimedRobot {
    * initialization code.
    */
   public Robot() {
-    // Initialize devices
-    fl_drive_motor_ = new TalonSRX(1);
-    bl_drive_motor_ = new TalonSRX(2);
-    fr_drive_motor_ = new TalonSRX(3);
-    br_drive_motor_ = new TalonSRX(4);
-    driver_controller_ = new XboxController(0);
-
-    // Set followers
-    bl_drive_motor_.follow(fl_drive_motor_);
-    br_drive_motor_.follow(fr_drive_motor_);
-
-    // Invert motors
-    fl_drive_motor_.setInverted(INVERT_LEFT_DRIVE);
-    bl_drive_motor_.setInverted(INVERT_LEFT_DRIVE);
-    fr_drive_motor_.setInverted(!INVERT_LEFT_DRIVE);
-    br_drive_motor_.setInverted(!INVERT_LEFT_DRIVE);
-
-    // Configure encoders
-    fl_drive_motor_.setSensorPhase(true);
-    fr_drive_motor_.setSensorPhase(true);
-    fl_drive_motor_.setSelectedSensorPosition(0);
-    fr_drive_motor_.setSelectedSensorPosition(0);
+    drivetrain_ = new Drivetrain();
   }
 
   /**
@@ -90,25 +38,8 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
-    // Calculate odometry
-    left_velocity_ = fl_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    right_velocity_ = fr_drive_motor_.getSelectedSensorVelocity() / 4096.0 * WHEEL_CIRCUMFERENCE * 10; // m/s
-    left_position_ = fl_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-    right_position_ = fr_drive_motor_.getSelectedSensorPosition() / 4096.0 * WHEEL_CIRCUMFERENCE; // m
-
-    distance = (left_position_ + right_position_) / 2.0;
-    double velocity = (left_velocity_ + right_velocity_) / 2.0;
-    double yaw_rate = (right_velocity_ - left_velocity_) / (TRACK_WIDTH/2.0);
-
-    // Set outputs
-    fl_drive_motor_.set(ControlMode.PercentOutput, left_applied_percent_);
-    fr_drive_motor_.set(ControlMode.PercentOutput, right_applied_percent_);
-
-    // Display odometry information to dashboard
-    SmartDashboard.putNumber("Chassis Distance", distance);
-    SmartDashboard.putNumber("Chassis Velocity", velocity);
-    SmartDashboard.putNumber("Chassis Yaw Rate", Units.radiansToDegrees(yaw_rate));
-
+    drivetrain_.readInputs();
+    drivetrain_.writeOutputs();
   }
 
   /**
@@ -130,25 +61,21 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void autonomousInit() {
-    fl_drive_motor_.setSelectedSensorPosition(0);
-    fr_drive_motor_.setSelectedSensorPosition(0);
+    drivetrain_.zeroOdometry();
   }
 
   /** This function is called periodically during autonomous. */
   @Override
   public void autonomousPeriodic() {
-    if (distance < 9.9) {
+    if (drivetrain_.getPosition() < 9.9) {
       // Drive Forward
-      left_applied_percent_ = 0.25;
-      right_applied_percent_ = 0.25;
-    } else if (distance > 10.1) {
+      drivetrain_.arcadeDrive(0.25, 0.0);
+    } else if (drivetrain_.getPosition() > 10.1) {
       // Drive Backward
-      left_applied_percent_ = -0.25;
-      right_applied_percent_ = -0.25;
+      drivetrain_.arcadeDrive(-0.25, 0);
     } else {
       // Stop
-      left_applied_percent_ = 0.0;
-      right_applied_percent_ = 0.0;
+      drivetrain_.arcadeDrive(0.0, 0.0);
     }
   }
 
@@ -160,8 +87,7 @@ public class Robot extends TimedRobot {
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    left_applied_percent_ = driver_controller_.getLeftY() - -driver_controller_.getRightX();
-    right_applied_percent_ = driver_controller_.getLeftY() - -driver_controller_.getRightX();
+    drivetrain_.arcadeDrive(OI.getDriverLeftYAxis(), OI.getDriverRightXAxis());
   }
 
   /** This function is called once when the robot is disabled. */
@@ -193,4 +119,5 @@ public class Robot extends TimedRobot {
   @Override
   public void simulationPeriodic() {
   }
+
 }
